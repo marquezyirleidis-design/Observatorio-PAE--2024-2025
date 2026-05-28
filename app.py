@@ -12,6 +12,9 @@ except Exception:
 
 DATA_PATH = Path("Data/ExcelPAEsintetizado.xlsx")
 LOCAL_DATA_PATH = Path(r"C:\Users\marqu\OneDrive\Escritorio\Proyecto_PAE\Data\ExcelPAEsintetizado.xlsx")
+HEADER_IMAGE_PATH = Path("Data/encabezado_plan_decenal.png")
+LOCAL_HEADER_IMAGE_PATH = Path(r"C:\Users\marqu\OneDrive\Escritorio\Proyecto_PAE\Data\encabezado_plan_decenal.png")
+DATA_VERSION = "2026-05-27-instituciones-homologadas"
 
 st.set_page_config(
     page_title="PAE Santa Marta",
@@ -177,6 +180,27 @@ section[data-testid="stSidebar"] button {
   color: #667085;
   font-size: .87rem;
 }
+.explain-card {
+  background: #ffffff;
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 26px rgba(17,29,46,.06);
+}
+.explain-card h4 {
+  color: #142033;
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+}
+.explain-card p, .explain-card li {
+  color: #4d5b6f;
+  font-size: .9rem;
+  line-height: 1.45;
+}
+.explain-card ul {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
 .warning {
   border-left-color: #df5c5c;
 }
@@ -219,7 +243,13 @@ def pct(value) -> str:
 
 
 def clean_name(value) -> str:
-    return " ".join(str(value).strip().split())
+    name = " ".join(str(value).strip().split())
+    aliases = {
+        "INSTITUCION EDUCATIVA DISTRITAL ANTONIO ESCOBAR CAMARGO": "IED ANTONIO ESCOBAR CAMARGO",
+        "INSTITUCION EDUCATIVA DISTRITAL ANTONIO ESCOBAR CAMARGO": "IED ANTONIO ESCOBAR CAMARGO",
+    }
+    normalized = name.replace("  ", " ").upper()
+    return aliases.get(normalized, name)
 
 
 def chart(options: dict, height: str = "430px", key: str | None = None):
@@ -234,7 +264,7 @@ def grid() -> dict:
 
 
 @st.cache_data(show_spinner=False)
-def load_data(path_or_file):
+def load_data(path_or_file, data_version=DATA_VERSION):
     raw = pd.read_excel(path_or_file, sheet_name=None)
     sheet_names = list(raw.keys())
     inversion_sheet = next((s for s in sheet_names if "General24-25" in s), sheet_names[2])
@@ -298,7 +328,7 @@ def load_data(path_or_file):
             "participacion": pd.to_numeric(grado_raw.iloc[:, 3], errors="coerce"),
         }
     )
-    grado["orden"] = grado["grado"].map(lambda x: int(x) if str(x).isdigit() else 99)
+    grado["orden"] = pd.to_numeric(grado["grado"], errors="coerce").fillna(99)
 
     return {
         "globales": globales,
@@ -324,14 +354,13 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-uploaded = st.sidebar.file_uploader("Cargar base de datos", type=["xlsx"])
-source = uploaded if uploaded is not None else (DATA_PATH if DATA_PATH.exists() else LOCAL_DATA_PATH)
+source = DATA_PATH if DATA_PATH.exists() else LOCAL_DATA_PATH
 
-if uploaded is None and not source.exists():
-    st.error("No encontré la base de datos. Cárgala desde la barra lateral.")
+if not source.exists():
+    st.error("No encontré la base de datos en la carpeta Data.")
     st.stop()
 
-data = load_data(source)
+data = load_data(source, DATA_VERSION)
 globales = data["globales"]
 instituciones = data["instituciones"]
 total_cobertura = data["total_cobertura"]
@@ -351,6 +380,8 @@ else:
     st.session_state.selected_inst = [
         item for item in st.session_state.selected_inst if item in inst_opts
     ]
+    if len(st.session_state.selected_inst) > len(inst_opts):
+        st.session_state.selected_inst = inst_opts.copy()
 
 col_clear_all, col_select_all = st.sidebar.columns(2)
 if col_clear_all.button("Eliminar todas", use_container_width=True):
@@ -395,6 +426,16 @@ else:
     delta_ben = np.nan
     delta_inv = np.nan
 
+header_image_source = (
+    HEADER_IMAGE_PATH
+    if HEADER_IMAGE_PATH.exists()
+    else LOCAL_HEADER_IMAGE_PATH
+    if LOCAL_HEADER_IMAGE_PATH.exists()
+    else None
+)
+if header_image_source is not None:
+    st.image(str(header_image_source), width="stretch")
+
 st.markdown(
     f"""
     <div class="hero">
@@ -406,6 +447,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+selected_institution_count = inst_year["institucion"].nunique()
 selected_beneficiaries = inst_year["beneficiarios"].sum() if not inst_year.empty else 0
 selected_matriculados = inst_year["matriculados"].sum() if not inst_year.empty else 0
 selected_coverage = (
@@ -419,7 +461,7 @@ st.markdown(
       <div class="kpi"><div class="label">Beneficiarios</div><div class="value">{n(global_year["beneficiarios"])}</div><div class="note">Población atendida</div></div>
       <div class="kpi"><div class="label">Matriculados</div><div class="value">{n(global_year["matriculados"])}</div><div class="note">Población escolar</div></div>
       <div class="kpi"><div class="label">Cobertura global</div><div class="value">{pct(global_year["cobertura_global"])}</div><div class="note">Alcance del programa</div></div>
-      <div class="kpi"><div class="label">Instituciones</div><div class="value">{n(inst_year_all["institucion"].nunique())}</div><div class="note">Sedes educativas analizadas</div></div>
+      <div class="kpi"><div class="label">Instituciones educativas</div><div class="value">{n(inst_year_all["institucion"].nunique())}</div><div class="note">IED analizadas</div></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -433,7 +475,7 @@ st.markdown(
       <div class="guide-card"><strong>3. Perfil</strong><span>Distribución por modalidad, género y grado para lectura poblacional.</span></div>
     </div>
     <div class="insight">
-      Selección actual: <strong>{n(len(selected_inst))}</strong> instituciones,
+      Selección actual: <strong>{n(selected_institution_count)}</strong> instituciones,
       <strong>{n(selected_beneficiaries)}</strong> beneficiarios y cobertura consolidada de
       <strong>{pct(selected_coverage)}</strong>.
     </div>
@@ -441,8 +483,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["1. Resumen ejecutivo", "2. Instituciones", "3. Género y grados", "4. Datos revisables"]
+tab1, tab2, tab3 = st.tabs(
+    ["1. Resumen ejecutivo", "2. Instituciones", "3. Género y grados"]
 )
 
 with tab1:
@@ -611,26 +653,31 @@ with tab2:
         )
 
     low = inst_year.sort_values("cobertura", ascending=True).head(15).sort_values("cobertura")
-    st.markdown(
-        """
-        <div class="insight warning">
-          Ranking de instituciones con menor cobertura reportada. La brecha ayuda a identificar prioridades de atención.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    chart(
-        {
-            "color": ["#df5c5c"],
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "grid": grid(),
-            "xAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
-            "yAxis": {"type": "category", "data": low["institucion"].tolist(), "axisLabel": {"fontSize": 10}},
-            "series": [{"name": "%Cobertura", "type": "bar", "data": (low["cobertura"] * 100).round(1).fillna(0).tolist()}],
-        },
-        height="520px",
-        key="low_coverage",
-    )
+    low_chart, low_note = st.columns([2.45, 0.85])
+    with low_chart:
+        chart(
+            {
+                "color": ["#df5c5c"],
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "grid": grid(),
+                "xAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
+                "yAxis": {"type": "category", "data": low["institucion"].tolist(), "axisLabel": {"fontSize": 10}},
+                "series": [{"name": "%Cobertura", "type": "bar", "data": (low["cobertura"] * 100).round(1).fillna(0).tolist()}],
+            },
+            height="520px",
+            key="low_coverage",
+        )
+    with low_note:
+        st.markdown(
+            """
+            <div class="explain-card">
+              <h4>Cómo leer este ranking</h4>
+              <p><strong>Menor cobertura</strong> significa que una menor proporción de estudiantes matriculados aparece beneficiada por el PAE.</p>
+              <p>Las instituciones ubicadas en la parte inferior del porcentaje requieren revisión prioritaria, especialmente cuando también presentan una brecha alta.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown('<div class="question">Dónde está la mayor brecha institucional?</div>', unsafe_allow_html=True)
     gap = inst_year.sort_values("brecha", ascending=False).head(15).sort_values("brecha")
@@ -688,26 +735,41 @@ with tab3:
             """,
             unsafe_allow_html=True,
         )
-    chart(
-        {
-            "color": ["#00a19a"],
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "grid": grid(),
-            "xAxis": {"type": "category", "data": grade_year["grado"].tolist(), "name": "Grado"},
-            "yAxis": {"type": "value", "name": "Beneficiarios"},
-            "series": [{"name": "Beneficiarios", "type": "bar", "barMaxWidth": 44, "data": grade_year["beneficiarios"].round(0).tolist()}],
-        },
-        key="grade",
-    )
-
-with tab4:
-    st.markdown('<div class="question">Datos revisables</div>', unsafe_allow_html=True)
-    st.caption("Tablas de soporte para validar los indicadores y explorar el detalle.")
-    st.subheader("Indicadores globales")
-    st.dataframe(globales, width="stretch", hide_index=True)
-    st.subheader("Cobertura institucional filtrada")
-    st.dataframe(inst_year, width="stretch", hide_index=True)
-    st.subheader("Género")
-    st.dataframe(genero[genero["anio"] == year], width="stretch", hide_index=True)
-    st.subheader("Acceso por grado")
-    st.dataframe(grado[grado["anio"] == year], width="stretch", hide_index=True)
+    grade_chart, grade_note = st.columns([2.1, 1.05])
+    with grade_chart:
+        chart(
+            {
+                "color": ["#00a19a"],
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "grid": {"left": 60, "right": 38, "top": 44, "bottom": 58, "containLabel": True},
+                "xAxis": {
+                    "type": "category",
+                    "data": grade_year["grado"].tolist(),
+                    "name": "Grado",
+                    "nameLocation": "middle",
+                    "nameGap": 34,
+                },
+                "yAxis": {"type": "value", "name": "Beneficiarios"},
+                "series": [{"name": "Beneficiarios", "type": "bar", "barMaxWidth": 44, "data": grade_year["beneficiarios"].round(0).tolist()}],
+            },
+            height="500px",
+            key="grade",
+        )
+    with grade_note:
+        st.markdown(
+            """
+            <div class="explain-card">
+              <h4>Caracterización de grados</h4>
+              <ul>
+                <li>-2: Prejardín (Preescolar)</li>
+                <li>-1: Jardín (Preescolar)</li>
+                <li>0: Transición (Preescolar)</li>
+                <li>1° a 5°: Básica Primaria</li>
+                <li>6° a 9°: Básica Secundaria</li>
+                <li>10°: Décimo (Educación Media)</li>
+                <li>11°: Once (Educación Media)</li>
+              </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
